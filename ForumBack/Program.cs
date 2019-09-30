@@ -38,12 +38,17 @@ namespace ForumBack
             var testDataAsc = ForumLogic.GetDataForCurrentPage(currentPage, countElemetsOnPage, allCount, sortTypeAsc);
             var testDataDesc = ForumLogic.GetDataForCurrentPage(currentPage, countElemetsOnPage, allCount, sortTypeDesc);
 
-            ForumLogic.UpdateDataById(updateId, updateModel);
-            ForumLogic.InsertData(insertModel);
-            ForumLogic.InsertData(insertModel);
-            ForumLogic.DeleteDataById(deleteId);
+            //ForumLogic.UpdateDataById(updateId, updateModel);
+            //ForumLogic.InsertData(insertModel);
+            //ForumLogic.InsertData(insertModel);
+            //ForumLogic.DeleteDataById(deleteId);
 
             var newAllCount = ForumLogic.GetCountAllRecords();
+
+            int currentPage2 = 2;
+            int countElemetsOnPage2 = 4;
+
+            var testDataAsc2 = ForumLogic.GetDataByIds(currentPage2, countElemetsOnPage2, newAllCount, sortTypeAsc);
         }
     }
 
@@ -84,7 +89,7 @@ namespace ForumBack
 
             string query =
                 @"select id, ThemeName, ChangeDate from Forum with(nolock)
-                order by ChangeDate " + sortType +
+                order by ChangeDate, id " + sortType +
                 @" offset @skipElements rows
                 FETCH NEXT @takeElements rows only";
 
@@ -160,6 +165,48 @@ namespace ForumBack
                 }
 
                 db.Execute(query, new { id });
+            }
+        }
+
+        public static List<ForumModel> GetDataByIds(int currentPage, int countElemetsOnPage, int allCount, string sortType)
+        {
+            int skipElements = (currentPage - 1) * countElemetsOnPage;
+
+            if (allCount < (skipElements + 1))
+            {
+                return new List<ForumModel>();
+            }
+
+            int[] ids = GetIds(skipElements, countElemetsOnPage, sortType);
+            string query =
+                @"select id, ThemeName, ChangeDate from Forum 
+                with(nolock) where id in @ids";
+
+            using (IDbConnection db = new SqlConnection(conn))
+            {
+                if (db.State == ConnectionState.Closed)
+                {
+                    db.Open();
+                }
+
+                return db.Query<ForumModel>(query, new { ids }).ToList();
+            }
+        }
+
+        private static int[] GetIds(int skipElements, int takeElements, string sortType)
+        {
+            string query =
+                @"select id from Forum with(nolock)
+                order by ChangeDate, id " + sortType;
+
+            using (IDbConnection db = new SqlConnection(conn))
+            {
+                if (db.State == ConnectionState.Closed)
+                {
+                    db.Open();
+                }
+
+                return db.Query<int>(query).Skip(skipElements).Take(takeElements).ToArray();
             }
         }
     }
