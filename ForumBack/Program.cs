@@ -45,10 +45,17 @@ namespace ForumBack
 
             var newAllCount = ForumLogic.GetCountAllRecords();
 
-            int currentPage2 = 2;
+            int currentPage2 = 3;
             int countElemetsOnPage2 = 4;
 
             var testDataAsc2 = ForumLogic.GetDataByIds(currentPage2, countElemetsOnPage2, newAllCount, sortTypeAsc);
+            var testDataDesc2 = ForumLogic.GetDataByIds(currentPage2, countElemetsOnPage2, newAllCount, sortTypeDesc);
+
+            var slqTestAsc1 = ForumLogic.GetDataForCurrentPageSql(currentPage2, countElemetsOnPage2, newAllCount, sortTypeAsc, sortTypeDesc);
+            var slqTestDesc1 = ForumLogic.GetDataForCurrentPageSql(currentPage2, countElemetsOnPage2, newAllCount, sortTypeDesc, sortTypeAsc);
+            
+            var testDataAsc3 = ForumLogic.GetDataForCurrentPageLinq(currentPage2, countElemetsOnPage2, newAllCount, sortTypeAsc);
+            var testDataDesc3 = ForumLogic.GetDataForCurrentPageLinq(currentPage2, countElemetsOnPage2, newAllCount, sortTypeDesc);
         }
     }
 
@@ -89,7 +96,7 @@ namespace ForumBack
 
             string query =
                 @"select id, ThemeName, ChangeDate from Forum with(nolock)
-                order by ChangeDate, id " + sortType +
+                order by ChangeDate " + sortType + @", id " + sortType +
                 @" offset @skipElements rows
                 FETCH NEXT @takeElements rows only";
 
@@ -197,7 +204,7 @@ namespace ForumBack
         {
             string query =
                 @"select id from Forum with(nolock)
-                order by ChangeDate, id " + sortType;
+                order by ChangeDate " + sortType + @", id " + sortType;
 
             using (IDbConnection db = new SqlConnection(conn))
             {
@@ -209,5 +216,88 @@ namespace ForumBack
                 return db.Query<int>(query).Skip(skipElements).Take(takeElements).ToArray();
             }
         }
+
+        #region SQL and LINQ without 'offset' and ('skip()' and 'take()')
+
+        public static List<ForumModel> GetDataForCurrentPageSql(int currentPage, int countElemetsOnPage, int allCount, string sortType1, string sortType2)
+        {
+            int skipElements = (currentPage - 1) * countElemetsOnPage;
+
+            if (allCount < (skipElements + 1))
+            {
+                return new List<ForumModel>();
+            }
+
+            skipElements += countElemetsOnPage;
+
+            int range = allCount - skipElements;
+            int takeElements = range < 0 ? (-1) * range : countElemetsOnPage;
+
+            string query =
+                @"select * from (
+                    select top(@takeElements) * from (
+                        select top(@skipElements) * from Forum with(nolock)
+                        order by ChangeDate " + sortType1 + @", id " + sortType1 +
+                @"  ) Forum
+                    order by ChangeDate " + sortType2 + @", id " + sortType2 + @") as result
+                order by ChangeDate " + sortType2 + @", id " + sortType2;
+
+            using (IDbConnection db = new SqlConnection(conn))
+            {
+                if (db.State == ConnectionState.Closed)
+                {
+                    db.Open();
+                }
+
+                return db.Query<ForumModel>(query, new { skipElements, takeElements }).ToList();
+            }
+        }
+
+        public static List<ForumModel> GetDataForCurrentPageLinq(int currentPage, int countElemetsOnPage, int allCount, string sortType)
+        {
+            int skipElements = (currentPage - 1) * countElemetsOnPage;
+
+            if (allCount < (skipElements + 1))
+            {
+                return new List<ForumModel>();
+            }
+
+            int[] ids = GetIdsWithoutSkipTake(skipElements, countElemetsOnPage, sortType);
+            string query =
+                @"select id, ThemeName, ChangeDate from Forum 
+                with(nolock) where id in @ids";
+
+            using (IDbConnection db = new SqlConnection(conn))
+            {
+                if (db.State == ConnectionState.Closed)
+                {
+                    db.Open();
+                }
+
+                var items = db.Query<ForumModel>(query, new { ids });
+                var t1 = items.Where((item, index) => index > skipElements && index < (skipElements + countElemetsOnPage)).ToList();
+
+                return db.Query<ForumModel>(query, new { ids }).ToList();
+            }
+        }
+
+        private static int[] GetIdsWithoutSkipTake(int skipElements, int takeElements, string sortType)
+        {
+            string query =
+                @"select id from Forum with(nolock)
+                order by ChangeDate " + sortType + @", id " + sortType;
+
+            using (IDbConnection db = new SqlConnection(conn))
+            {
+                if (db.State == ConnectionState.Closed)
+                {
+                    db.Open();
+                }
+
+                return db.Query<int>(query).Where((item, index) => index > (skipElements - 1) && index < (skipElements + takeElements)).ToArray();
+            }
+        }
+
+        #endregion
     }
 }
